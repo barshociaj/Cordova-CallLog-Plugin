@@ -1,11 +1,15 @@
 package com.ubookr.plugins;
 
 import android.content.Intent;
+import android.content.Context;
+import android.telephony.TelephonyManager;
 import android.database.Cursor;
 import android.net.Uri;
+import android.net.TrafficStats;
 import android.provider.ContactsContract.Intents;
 import android.provider.ContactsContract.PhoneLookup;
 import android.util.Log;
+import android.os.SystemClock;
 
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
@@ -24,7 +28,11 @@ public class CallLogPlugin extends CordovaPlugin {
     private static final String ACTION_CONTACT = "contact";
     private static final String ACTION_SHOW = "show";
     private static final String ACTION_DELETE = "delete";
+    private static final String ACTION_MYNUMBER = "myNumber";
+    private static final String ACTION_LISTSMS = "listSms";
+    private static final String ACTION_DATAUSAGE = "dataUsage";
     private static final String TAG = "CallLogPlugin";
+    private Context context;
 
     @Override
     public boolean execute(String action, JSONArray args, final CallbackContext callbackContext) {
@@ -39,11 +47,61 @@ public class CallLogPlugin extends CordovaPlugin {
             list(args, callbackContext);
         } else if (ACTION_DELETE.equals(action)) {
             delete(args, callbackContext);
+        } else if (ACTION_MYNUMBER.equals(action)) {
+            myNumber(args, callbackContext);
+        } else if (ACTION_LISTSMS.equals(action)) {
+            listSms(args, callbackContext);
+        } else if (ACTION_DATAUSAGE.equals(action)) {
+            dataUsage(args, callbackContext);
         } else {
             Log.d(TAG, "Invalid action : " + action + " passed");
             callbackContext.sendPluginResult(new PluginResult(Status.INVALID_ACTION));
         }
         return true;
+    }
+
+    private void myNumber(final JSONArray args, final CallbackContext callbackContext) {
+
+        cordova.getThreadPool().execute(new Runnable() {
+        //cordova.getActivity().runOnUiThread(new Runnable() {
+            public void run() {
+                PluginResult result;
+                try {
+                    TelephonyManager mTelephonyMgr = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
+                    String num = mTelephonyMgr.getLine1Number();
+                    result = new PluginResult(Status.OK, num);
+                } catch (Exception e) {
+                    Log.d(TAG, "Got Number Exception " + e.getMessage());
+                    result = new PluginResult(Status.ERROR, e.getMessage());
+                }
+                callbackContext.sendPluginResult(result);
+            }
+        });
+    }
+
+    private void dataUsage(final JSONArray args, final CallbackContext callbackContext) {
+
+        cordova.getThreadPool().execute(new Runnable() {
+        //cordova.getActivity().runOnUiThread(new Runnable() {
+            public void run() {
+                PluginResult result;
+                try {
+
+                    JSONObject info = new JSONObject();
+
+                    info.put("received", TrafficStats.getMobileRxBytes());
+                    info.put("transmitted", TrafficStats.getMobileTxBytes());
+                    info.put("elapsedRealtime", SystemClock.elapsedRealtime());
+                    info.put("uptimeMillis", SystemClock.uptimeMillis());
+
+                    result = new PluginResult(Status.OK, info);
+                } catch (Exception e) {
+                    Log.d(TAG, "Got Number Exception " + e.getMessage());
+                    result = new PluginResult(Status.ERROR, e.getMessage());
+                }
+                callbackContext.sendPluginResult(result);
+            }
+        });
     }
 
     private void show(final JSONArray args, final CallbackContext callbackContext) {
@@ -155,6 +213,108 @@ public class CallLogPlugin extends CordovaPlugin {
             }
         });
     }
+
+    private void listSms(final JSONArray args, final CallbackContext callbackContext) {
+
+        cordova.getThreadPool().execute(new Runnable() {
+            public void run() {
+                PluginResult result;
+                try {
+
+                    String limiter = null;
+                    if (!args.isNull(0)) {
+                        // make number positive in case caller give negative days
+                        int days = Math.abs(Integer.valueOf(args.getString(0)));
+                        Log.d(TAG, "Days is: " + days);
+                        //turn this into a date
+                        Calendar calendar = Calendar.getInstance();
+                        calendar.setTime(new Date());
+
+                        calendar.add(Calendar.DAY_OF_YEAR, -days);
+                        Date limitDate = calendar.getTime();
+                        limiter = String.valueOf(limitDate.getTime());
+                    }
+
+                    //now do required search
+                    JSONObject smsLog = getSmsLog(limiter);
+                    Log.d(TAG, "Returning SMS " + smsLog.toString());
+                    result = new PluginResult(Status.OK, smsLog);
+
+                } catch (JSONException e) {
+                    Log.d(TAG, "Got JSON Exception " + e.getMessage());
+                    result = new PluginResult(Status.JSON_EXCEPTION, e.getMessage());
+                } catch (NumberFormatException e) {
+                    Log.d(TAG, "Got NumberFormatException " + e.getMessage());
+                    result = new PluginResult(Status.ERROR, "Non integer passed to list");
+                } catch (Exception e) {
+                    Log.d(TAG, "Got Exception " + e.getMessage());
+                    result = new PluginResult(Status.ERROR, e.getMessage());
+                }
+                callbackContext.sendPluginResult(result);
+            }
+        });
+    }
+
+
+    private JSONObject getSmsLog(String limiter) throws JSONException {
+
+      JSONObject smsLog = new JSONObject();
+
+      int typeSent = android.provider.Telephony.TextBasedSmsColumns.MESSAGE_TYPE_SENT;
+
+      String[] strFields = {
+          "address",
+          "date",
+          "date_sent",
+          "type",
+          "person",
+          "protocol"
+          };
+
+      try {
+
+      // Create Sent box URI
+      Uri sentURI = Uri.parse("content://sms/sent");
+      // List required columns
+      Cursor smsLogCursor = this.cordova.getActivity().getContentResolver().query(
+            sentURI,
+            strFields,
+            limiter == null ? null : android.provider.CallLog.Calls.DATE + ">?",
+            limiter == null ? null : new String[] {limiter},
+            android.provider.CallLog.Calls.DEFAULT_SORT_ORDER);
+
+        int smsCount = smsLogCursor.getCount();
+
+        if (smsCount > 0) {
+          JSONObject smsLogItem = new JSONObject();
+          JSONArray smsLogItems = new JSONArray();
+
+          smsLogCursor.moveToFirst();
+          do {
+            int type = smsLogCursor.getInt(smsLogCursor.getColumnIndex("type"));
+            if (typeSent == type) {
+              smsLogItem.put("address", smsLogCursor.getString(smsLogCursor.getColumnIndex("address")));
+              smsLogItem.put("date", smsLogCursor.getLong(smsLogCursor.getColumnIndex("date")));
+              smsLogItem.put("date_sent", smsLogCursor.getLong(smsLogCursor.getColumnIndex("date_sent")));
+              smsLogItem.put("person", smsLogCursor.getString(smsLogCursor.getColumnIndex("person")));
+              smsLogItem.put("protocol", smsLogCursor.getInt(smsLogCursor.getColumnIndex("protocol")));
+              smsLogItems.put(smsLogItem);
+              smsLogItem = new JSONObject();
+            }
+          } while (smsLogCursor.moveToNext());
+          smsLog.put("rows", smsLogItems);
+        }
+
+        smsLogCursor.close();
+      } catch (Exception e) {
+        Log.d("CallLog_Plugin", " ERROR : SMS SQL to get cursor: ERROR " + e.getMessage());
+      }
+
+      return smsLog;
+    }
+
+
+
 
    	private void viewContact(String phoneNumber) {
 

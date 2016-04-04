@@ -34,6 +34,8 @@
 
         <config-file target="AndroidManifest.xml" parent="/manifest">
             <uses-permission android:name="android.permission.READ_CALL_LOG" />
+            <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+            <uses-permission android:name="android.permission.READ_SMS" />
         </config-file>
 
         <source-file src="src/com/ubookr/plugins/CallLogPlugin.java" target-dir="src/com/ubookr/plugins"/>

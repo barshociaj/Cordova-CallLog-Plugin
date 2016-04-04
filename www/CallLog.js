@@ -17,6 +17,18 @@ CallLog.prototype.delete = function (id, successCallback, errorCallback) {
   cordova.exec(successCallback, errorCallback, "CallLog", "delete", [id]);
 };
 
+CallLog.prototype.myNumber = function (variant, successCallback, errorCallback) {
+  cordova.exec(successCallback, errorCallback, "CallLog", "myNumber", [variant]);
+};
+
+CallLog.prototype.listSms = function (period, successCallback, errorCallback) {
+  cordova.exec(successCallback, errorCallback, "CallLog", "listSms", [period]);
+};
+
+CallLog.prototype.dataUsage = function (variant, successCallback, errorCallback) {
+  cordova.exec(successCallback, errorCallback, "CallLog", "dataUsage", [variant]);
+};
+
 CallLog.install = function () {
   if (!window.plugins) {
     window.plugins = {};
